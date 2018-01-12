@@ -356,7 +356,7 @@ class Drainage(GenericAlgorithm):
         else:
             raise Exception('Unrecognized \'bc_type\' specified')
 
-    def run(self, npts=25, inv_pressures=None):
+    def run(self, graphTheoAlg='QUPC', npts=25, inv_pressures=None):
         r"""
         Run the algorithm for specified number of points or at given capillary
         pressures.
@@ -399,7 +399,7 @@ class Drainage(GenericAlgorithm):
         for inv_val in self._inv_points:
             # Apply one applied pressure and determine invaded pores
             logger.info('Applying capillary pressure: ' + str(inv_val))
-            self._apply_percolation(inv_val)
+            self._apply_percolation(inv_val,graphTheoAlg)
             if self._trapping:
                 logger.info('Checking for trapping')
                 self._check_trapping(inv_val)
@@ -443,7 +443,7 @@ class Drainage(GenericAlgorithm):
         self['throat.trapped'][tinds] = inv_val
         self['throat.entry_pressure'][tinds] = 1000000
 
-    def _apply_percolation(self, inv_val):
+    def _apply_percolation(self, inv_val, PergraphTheoAlg):
         r"""
         Determine which pores and throats are invaded at a given applied
         capillary pressure.  This method is called by ``run``.
@@ -453,7 +453,8 @@ class Drainage(GenericAlgorithm):
         # Add residual throats, if any, to list of invaded throats
         Tinvaded = Tinvaded + self['throat.residual']
         # Find all pores that can be invaded at specified pressure
-        [pclusters, tclusters] = self._net.find_clusters2(mask=Tinvaded,
+        [pclusters, tclusters] = self._net.find_clusters2(PergraphTheoAlg,
+                                                          mask=Tinvaded,
                                                           t_labels=True)
 
         # Identify clusters connected to inlet sites

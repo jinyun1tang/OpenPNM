@@ -14,6 +14,10 @@ import OpenPNM.Utilities.vertexops as vo
 from OpenPNM.Base import logging
 logger = logging.getLogger(__name__)
 
+import importlib
+# check if petsc4py is installed
+if (importlib.util.find_spec('petsc4py') is not None):
+    from OpenPNM.Utilities.__petscSLS__ import petscSparseLinearSolver as sls
 
 class GenericLinearTransport(GenericAlgorithm):
     r"""
@@ -551,7 +555,7 @@ class GenericLinearTransport(GenericAlgorithm):
         logger.info('Writing the results to ' + '[\'' + self._quantity +
                     '\'] in the ' + self.name + ' algorithm.')
 
-    def _do_one_inner_iteration(self, A, b, **kwargs):
+    def _do_one_inner_iteration(self, A, b, usePetsc=True, **kwargs):
         r"""
         This method solves AX = b and returns the result to the corresponding
         algorithm.
@@ -563,7 +567,21 @@ class GenericLinearTransport(GenericAlgorithm):
         if b is None:
             b = self.b
         if self._iterative_solver is None:
-            X = sprslin.spsolve(A, b)
+            # check if petsc4py is installed
+            petscAvail=importlib.util.find_spec('petsc4py') is not None
+
+            # if petsc4py is available and set to be used,
+            # use it to solve the system AX = b
+            if (petscAvail and usePetsc):
+                # define the petsc linear system by converting the scipy objects
+                ls = sls(A, b)
+                # solve the system using the default configuration:
+                # cg solver with jacobi preconditioner
+                X = sls.petsc_solve_sparse_linear_sys(ls)
+                # clean
+                del(ls)
+            else:
+                X = sprslin.spsolve(A, b)
         else:
             if self._iterative_solver not in ['cg', 'gmres']:
                 raise Exception('GenericLinearTransport does not support the' +

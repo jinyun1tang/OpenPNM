@@ -13,6 +13,9 @@ import scipy.spatial as sptl
 import OpenPNM.Utilities.misc as misc
 from OpenPNM.Utilities import topology
 from OpenPNM.Base import Core, Workspace, Tools, logging
+
+from OpenPNM.Utilities.__graphTheoAlgs__ import quick_union_algs as qua
+
 logger = logging.getLogger(__name__)
 mgr = Workspace()
 topo = topology()
@@ -666,7 +669,7 @@ class GenericNetwork(Core):
                                                 directed=False)[1]
         return clusters
 
-    def find_clusters2(self, mask=[], t_labels=False):
+    def find_clusters2(self, FCgraphTheoAlg, mask=[], t_labels=False):
         r"""
         Identify connected clusters of pores in the network.  This method can
         also return a list of throat cluster numbers, which correspond to the
@@ -738,7 +741,10 @@ class GenericNetwork(Core):
             (p_clusters, t_clusters) = self._site_percolation(mask)
         # If pore mask was given perform bond percolation
         elif sp.size(mask) == self.Nt:
-            (p_clusters, t_clusters) = self._bond_percolation(mask)
+            if (FCgraphTheoAlg=='DFS'):
+                (p_clusters, t_clusters) = self._bond_percolation(mask)
+            elif (FCgraphTheoAlg=='QUPC'):
+                (p_clusters, t_clusters) = self._bond_percolation_QUPC(mask)
         else:
             raise Exception('Mask received was neither Nt nor Np long')
 
@@ -780,7 +786,8 @@ class GenericNetwork(Core):
 
     def _bond_percolation(self, tmask):
         r"""
-        This private method is called by 'find_clusters2'
+        This private method, based on an improved version of the depth-first
+        search algorithm (DFS), is called by 'find_clusters2'
         """
         # Perform the clustering using scipy.csgraph
         csr = self.create_adjacency_matrix(data=tmask,
@@ -791,7 +798,36 @@ class GenericNetwork(Core):
 
         # Convert clusters to a more usable output:
         # Find pores attached to each invaded throats
-        Ps = self.find_connected_pores(throats=tmask, flatten=True)
+        Ps = sp.unique(self['throat.conns'][tmask])
+        # Adjust cluster numbers such that non-invaded pores are labelled -0
+        p_clusters = (clusters + 1)*(self.tomask(pores=Ps).astype(int)) - 1
+        # Label invaded throats with their neighboring pore's label
+        t_clusters = clusters[self['throat.conns']][:, 0]
+        # Label non-invaded throats with -1
+        t_clusters[~tmask] = -1
+
+        return (p_clusters, t_clusters)
+
+    def _bond_percolation_QUPC(self, tmask):
+        r"""
+        This private method is called by 'find_clusters2'
+        """
+        # Perform the clustering using the quick union method
+        # with path compression
+        Pinvaded_ids=self['throat.conns'][tmask]
+        Ps = sp.unique(Pinvaded_ids)
+
+        graph_dyn=qua(sp.arange((self.Np),dtype='int'))
+
+        graph_dyn.build_quick_union( (Pinvaded_ids[:,0]),
+                                                (Pinvaded_ids[:,1]))
+
+        graph_dyn.find_root(elements_to_test = Ps)
+        clusters=graph_dyn.id_updated
+
+        # Convert clusters to a more usable output:
+        # Find pores attached to each invaded throats
+        #Ps = sp.unique(self['throat.conns'][tmask])
         # Adjust cluster numbers such that non-invaded pores are labelled -0
         p_clusters = (clusters + 1)*(self.tomask(pores=Ps).astype(int)) - 1
         # Label invaded throats with their neighboring pore's label
